@@ -26,6 +26,7 @@ dist/
 # Prisma
 prisma/*.db
 prisma/*.db-journal
+prisma/dev.db
 
 # Logs
 logs/
