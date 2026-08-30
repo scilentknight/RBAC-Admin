@@ -1,0 +1,332 @@
+datasource db {
+  // provider = "sqlite"
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------
+// 1. AUTHENTICATION & RBAC
+// ----------------------------------------------------
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  password     String
+  avatar       String?
+  status       String     @default("ACTIVE") // ACTIVE, DISABLED
+  dealerId     String?
+  dealer       Dealer?    @relation(fields: [dealerId], references: [id], onDelete: SetNull)
+  userRoles    UserRole[]
+  reviewedApps DistributorApplication[] @relation("ReviewedBy")
+  inventoryLogs InventoryLog[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Role {
+  id              String           @id @default(cuid())
+  name            String           @unique
+  slug            String           @unique
+  description     String?
+  isSystem        Boolean          @default(false)
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model Permission {
+  id              String           @id // e.g. "users.view", "products.create"
+  module          String           // e.g. "users", "products"
+  action          String           // e.g. "view", "create"
+  label           String
+  description     String?
+  rolePermissions RolePermission[]
+  createdAt       DateTime         @default(now())
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, roleId])
+}
+
+// ----------------------------------------------------
+// 2. CATEGORIES & BRANDS
+// ----------------------------------------------------
+
+model Category {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  description String?
+  image       String?
+  status      String     @default("ACTIVE") // ACTIVE, INACTIVE
+  sortOrder   Int        @default(0)
+  parentId    String?
+  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryHierarchy")
+  products    Product[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Brand {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  logo        String?
+  description String?
+  status      String    @default("ACTIVE") // ACTIVE, INACTIVE
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// ----------------------------------------------------
+// 3. ATTRIBUTES & VALUES
+// ----------------------------------------------------
+
+model Attribute {
+  id          String           @id @default(cuid())
+  name        String           // e.g. "Color", "Size", "Storage"
+  code        String           @unique // e.g. "color", "size", "storage"
+  description String?
+  status      String           @default("ACTIVE")
+  values      AttributeValue[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model AttributeValue {
+  id          String                    @id @default(cuid())
+  attributeId String
+  attribute   Attribute                 @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  value       String                    // e.g. "Red", "XL", "256GB"
+  code        String?                   // e.g. "#FF0000" or hex code / slug
+  sortOrder   Int                       @default(0)
+  variants    ProductVariantAttribute[]
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+}
+
+// ----------------------------------------------------
+// 4. PRODUCTS & VARIATIONS
+// ----------------------------------------------------
+
+model Product {
+  id               String           @id @default(cuid())
+  name             String
+  slug             String           @unique
+  shortDescription String?
+  description      String?
+  type             String           @default("SIMPLE") // SIMPLE, VARIABLE
+  status           String           @default("ACTIVE") // DRAFT, ACTIVE, ARCHIVED
+  categoryId       String?
+  category         Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brandId          String?
+  brand            Brand?           @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  images           ProductImage[]
+  variants         ProductVariant[]
+  orderItems       OrderItem[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  altText   String?
+  sortOrder Int      @default(0)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model ProductVariant {
+  id                String                    @id @default(cuid())
+  productId         String
+  product           Product                   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku               String                    @unique
+  barcode           String?
+  price             Float
+  compareAtPrice    Float?
+  stock             Int                       @default(0)
+  reservedStock     Int                       @default(0)
+  lowStockThreshold Int                       @default(5)
+  weight            Float?
+  image             String?
+  status            String                    @default("ACTIVE") // ACTIVE, INACTIVE
+  attributeValues   ProductVariantAttribute[]
+  orderItems        OrderItem[]
+  dealerInventories DealerInventory[]
+  inventoryLogs     InventoryLog[]
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+}
+
+model ProductVariantAttribute {
+  id               String         @id @default(cuid())
+  variantId        String
+  variant          ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  attributeValueId String
+  attributeValue   AttributeValue @relation(fields: [attributeValueId], references: [id], onDelete: Cascade)
+  createdAt        DateTime       @default(now())
+
+  @@unique([variantId, attributeValueId])
+}
+
+// ----------------------------------------------------
+// 5. ORDERS & ITEMS
+// ----------------------------------------------------
+
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  shippingAddress String
+  status          String      @default("PENDING") // PENDING, CONFIRMED, PROCESSING, SHIPPED, DELIVERED, CANCELLED
+  totalAmount     Float
+  paymentMethod   String      @default("CREDIT_CARD") // CREDIT_CARD, COD, BANK_TRANSFER
+  paymentStatus   String      @default("PENDING") // PENDING, PAID, REFUNDED
+  notes           String?
+  items           OrderItem[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model OrderItem {
+  id                String          @id @default(cuid())
+  orderId           String
+  order             Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId         String?
+  product           Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variantId         String?
+  variant           ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  productName       String
+  variantSku        String
+  variantAttributes String?         // Snapshot JSON e.g. "Color: Red, Size: M"
+  unitPrice         Float
+  quantity          Int
+  totalPrice        Float
+  createdAt         DateTime        @default(now())
+}
+
+// ----------------------------------------------------
+// 6. DISTRIBUTORS & APPLICATIONS
+// ----------------------------------------------------
+
+model Distributor {
+  id           String                   @id @default(cuid())
+  name         String
+  companyName  String
+  email        String                   @unique
+  phone        String
+  address      String
+  city         String
+  state        String
+  country      String                   @default("USA")
+  taxId        String?
+  status       String                   @default("ACTIVE") // ACTIVE, SUSPENDED, INACTIVE
+  creditLimit  Float                    @default(10000.0)
+  applications DistributorApplication[]
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+}
+
+model DistributorApplication {
+  id               String       @id @default(cuid())
+  applicantName    String
+  companyName      String
+  email            String
+  phone            String
+  businessType     String
+  annualRevenue    String?
+  address          String
+  documentsUrl     String?
+  status           String       @default("PENDING") // PENDING, APPROVED, REJECTED
+  reviewNotes      String?
+  reviewedByUserId String?
+  reviewedBy       User?        @relation("ReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?
+  distributorId    String?
+  distributor      Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+// ----------------------------------------------------
+// 7. DEALERS & DEALER INVENTORY
+// ----------------------------------------------------
+
+model Dealer {
+  id          String            @id @default(cuid())
+  name        String
+  code        String            @unique
+  email       String            @unique
+  phone       String
+  address     String
+  city        String
+  state       String
+  region      String
+  status      String            @default("ACTIVE") // ACTIVE, INACTIVE
+  users       User[]
+  inventories DealerInventory[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model DealerInventory {
+  id                String         @id @default(cuid())
+  dealerId          String
+  dealer            Dealer         @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  variantId         String
+  variant           ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  stock             Int            @default(0)
+  lowStockThreshold Int            @default(5)
+  location          String?        // e.g. "Aisle 3, Shelf B"
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([dealerId, variantId])
+}
+
+// ----------------------------------------------------
+// 8. INVENTORY LOGS (AUDIT TRAIL)
+// ----------------------------------------------------
+
+model InventoryLog {
+  id             String          @id @default(cuid())
+  variantId      String
+  variant        ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  dealerId       String?
+  changeType     String          // ORDER_DEDUCT, ORDER_RESTOCK, MANUAL_ADJUST, DEALER_UPDATE
+  quantityChange Int             // e.g. -2 or +10
+  previousStock  Int
+  newStock       Int
+  referenceId    String?         // e.g. Order number or update reason
+  userId         String?
+  user           User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt      DateTime        @default(now())
+}
